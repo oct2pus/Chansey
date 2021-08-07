@@ -254,6 +254,7 @@ func (db *database) SetOutbox(c context.Context, outbox vocab.ActivityStreamsOrd
 }
 
 func (db *database) Owns(c context.Context, id *url.URL) (owns bool, err error) {
+	// TODO: this seems like a naive implimentation
 	return strings.Contains(id.String(), HOSTNAME), nil
 }
 
@@ -272,27 +273,7 @@ func (db *database) OutboxForInbox(c context.Context, inboxIRI *url.URL) (outbox
 }
 
 func (db *database) Followers(c context.Context, actorIRI *url.URL) (followers vocab.ActivityStreamsCollection, err error) {
-	actorEntry, err := db.client.Get(c, actorIRI.String()).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	var data map[string]interface{}
-	err = json.Unmarshal([]byte(actorEntry), &data)
-	if err != nil {
-		return nil, err
-	}
-
-	var person vocab.ActivityStreamsPerson
-	resolver, err := streams.NewJSONResolver(func(c context.Context, p vocab.ActivityStreamsPerson) error {
-		person = p
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = resolver.Resolve(c, data)
+	person, err := db.getPersonFromIRI(c, actorIRI)
 	if err != nil {
 		return nil, err
 	}
@@ -307,29 +288,47 @@ func (db *database) Followers(c context.Context, actorIRI *url.URL) (followers v
 	if err != nil {
 		return nil, err
 	}
+	collection, err := db.getCollectionFromID(c, fID)
+	return collection, err
+}
 
-	followersEntry, err := db.client.Get(c, fID.String()).Result()
+func (db *database) Following(c context.Context, actorIRI *url.URL) (following vocab.ActivityStreamsCollection, err error) {
+	person, err := db.getPersonFromIRI(c, actorIRI)
+	if err != nil {
+		return nil, err
+	}
+	followingProperty := person.GetActivityStreamsFollowing()
+	if followingProperty.IsActivityStreamsCollection() {
+		return followingProperty.GetActivityStreamsCollection(), err
+	}
+
+	// May not be an orderedcollection unfortunately :()
+	fID, err := pub.GetId(followingProperty.GetType())
 	if err != nil {
 		return nil, err
 	}
 
-	var followersData map[string]interface{}
-	err = json.Unmarshal([]byte(followersEntry), &followersData)
+	collection, err := db.getCollectionFromID(c, fID)
+	return collection, err
+}
+
+func (db *database) Liked(c context.Context, actorIRI *url.URL) (liked vocab.ActivityStreamsCollection, err error) {
+	person, err := db.getPersonFromIRI(c, actorIRI)
 	if err != nil {
 		return nil, err
 	}
 
-	var collection vocab.ActivityStreamsCollection
-	resolver2, err := streams.NewJSONResolver(func(c context.Context, c vocab.ActivityStreamsCollection) error {
-		collection = c
+	likedProperty := person.GetActivityStreamsLiked()
+	if likedProperty.IsActivityStreamsCollection() {
+		return likedProperty.GetActivityStreamsCollection(), err
+	}
 
-		return nil
-	})
+	// May not be an orderedcollection unfortunately :()
+	lID, err := pub.GetId(likedProperty.GetType())
 	if err != nil {
 		return nil, err
 	}
-
-	err = resolver2.Resolve(c, followersData)
+	collection, err := db.getCollectionFromID(c, lID)
 	return collection, err
 }
 
@@ -351,6 +350,54 @@ func (db *database) createUpdate(c context.Context, asType vocab.Type) error {
 		return err
 	}
 	return db.client.Set(c, url.String(), entry, 0).Err()
+}
+
+func (db *database) getCollectionFromID(c context.Context, ID *url.URL) (collection vocab.ActivityStreamsCollection, err error) {
+	entry, err := db.client.Get(c, ID.String()).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var data map[string]interface{}
+	err = json.Unmarshal([]byte(entry), &data)
+	if err != nil {
+		return nil, err
+	}
+	resolver2, err := streams.NewJSONResolver(func(c context.Context, col vocab.ActivityStreamsCollection) error {
+		collection = col
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = resolver2.Resolve(c, data)
+	return collection, err
+}
+
+func (db *database) getPersonFromIRI(c context.Context, IRI *url.URL) (person vocab.ActivityStreamsPerson, err error) {
+	entry, err := db.client.Get(c, IRI.String()).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var data map[string]interface{}
+	err = json.Unmarshal([]byte(entry), &data)
+	if err != nil {
+		return nil, err
+	}
+
+	resolver, err := streams.NewJSONResolver(func(c context.Context, p vocab.ActivityStreamsPerson) error {
+		person = p
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = resolver.Resolve(c, data)
+	return person, err
 }
 
 // new func
