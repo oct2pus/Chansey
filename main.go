@@ -5,8 +5,6 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-const HOSTNAME = "jade.moe"
-
 func main() {
 	s := &service{}
 	db := &database{
