@@ -402,7 +402,7 @@ func (db *database) getPersonFromIRI(c context.Context, IRI *url.URL) (person vo
 
 // new func
 
-func databasebNew() *database {
+func databaseNew() *database {
 	var db *database
 	db.client = redis.NewClient(&redis.Options{})
 	return db
